@@ -1,0 +1,7 @@
+﻿.env
+.env.*
+*.env
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+push_error.txt

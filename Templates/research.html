@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="glass p-4 mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <div class="h5 mb-0">{{ job.name }}</div>
+      <div class="muted small">Job ID: <span class="mono">{{ job.id }}</span></div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-outline-light" href="{{ url_for('export_job_csv', job_id=job.id) }}">Export CSV</a>
+      <a class="btn btn-outline-light" href="{{ url_for('geo_page', job_id=job.id) }}">Geo heatmap</a>
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#competitorsModal">Competitors view</button>
+      <button class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#trendsModal">Google Trends</button>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="glass p-4">
+      <div class="h6 mb-2">Add targets</div>
+      <div class="muted small mb-2">
+        Keywords list + a location. Location can be a <b>ZIP</b> (85001), <b>County, ST</b> (Maricopa County, AZ), or a SerpAPI location string.
+      </div>
+
+      <form method="post" action="{{ url_for('add_targets_route', job_id=job.id) }}">
+        <label class="form-label muted">Keywords (comma or newline separated)</label>
+        <textarea class="form-control" name="keywords" rows="5" placeholder="solar installation&#10;solar panels phoenix&#10;residential solar"></textarea>
+
+        <div class="row mt-2">
+          <div class="col-12">
+            <label class="form-label muted">Location</label>
+            <input class="form-control" name="location" placeholder="85001  OR  Maricopa County, AZ  OR  Phoenix, Arizona, United States" required>
+          </div>
+          <div class="col-6 mt-2">
+            <label class="form-label muted">gl</label>
+            <input class="form-control" name="gl" value="us">
+          </div>
+          <div class="col-6 mt-2">
+            <label class="form-label muted">hl</label>
+            <input class="form-control" name="hl" value="en">
+          </div>
+        </div>
+
+        <button class="btn btn-primary w-100 mt-3">Add targets</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="glass p-4">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="h6 mb-0">Targets</div>
+        <div class="muted small">{{ targets|length }} total</div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle">
+          <thead>
+            <tr>
+              <th>ID</th><th>Keyword</th><th>Location</th><th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in targets %}
+            <tr>
+              <td class="mono">{{ t.id }}</td>
+              <td>{{ t.keyword }}</td>
+              <td class="muted small">
+                <div>Input: <span class="mono">{{ t.location_input }}</span></div>
+                <div>SerpAPI: <span class="mono">{{ t.serp_location }}</span></div>
+              </td>
+              <td class="text-end">
+                <form method="post" action="{{ url_for('run_target', target_id=t.id) }}" class="d-inline">
+                  <button class="btn btn-sm btn-primary">Run (desktop+mobile)</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not targets %}
+            <tr><td colspan="4" class="muted">No targets yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="muted small mt-2">
+        Run snapshots daily/weekly for longitudinal competitor trends + diffing.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Competitors Modal -->
+<div class="modal fade" id="competitorsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Competitors on captured keywords</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="muted small mb-2">Last sync: <span class="mono" id="compSync">—</span></div>
+
+        <div class="row g-2 mb-3">
+          <div class="col-md-3">
+            <label class="form-label muted">Window (days)</label>
+            <select class="form-select" id="compDays">
+              <option value="7">7</option>
+              <option value="30">30</option>
+              <option value="60">60</option>
+              <option value="90">90</option>
+              <option value="120">120</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label muted">Device</label>
+            <select class="form-select" id="compDevice">
+              <option value="all">All</option>
+              <option value="desktop">Desktop</option>
+              <option value="mobile">Mobile</option>
+            </select>
+          </div>
+          <div class="col-md-6 d-grid align-items-end">
+            <button class="btn btn-primary mt-4" onclick="loadCompetitors()">Load competitors</button>
+          </div>
+        </div>
+
+        <div id="diffBox" class="mb-3"></div>
+
+        <div class="table-responsive">
+          <table class="table table-dark table-hover align-middle">
+            <thead>
+              <tr>
+                <th>Advertiser</th>
+                <th>Appearances</th>
+                <th>Top-of-page share</th>
+                <th>Bottom share</th>
+                <th class="text-end"></th>
+              </tr>
+            </thead>
+            <tbody id="compTableBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Trends Modal -->
+<div class="modal fade" id="trendsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Google Trends</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="muted small mb-2">Last sync: <span class="mono" id="trendSync">—</span></div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label muted">Keywords (comma or newline separated; up to 5)</label>
+            <textarea class="form-control" id="trendKeywords" rows="3" placeholder="solar installation, solar panels"></textarea>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label muted">Geo</label>
+            <input class="form-control" id="trendGeo" value="US">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label muted">Timeframe</label>
+            <select class="form-select" id="trendTime">
+              <option value="today 3-m">Last 3 months</option>
+              <option value="today 12-m" selected>Last 12 months</option>
+              <option value="today 5-y">Last 5 years</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="loadTrends()">Load trends</button>
+        <div class="mt-3">
+          <canvas id="trendChart" height="120"></canvas>
+          <div id="trendError" class="muted small mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const jobId = {{ job.id }};
+  let trendChart;
+
+  function fmtMM(iso){
+    const d = new Date(iso);
+    const mm = String(d.getUTCMonth()+1).padStart(2,"0");
+    const dd = String(d.getUTCDate()).padStart(2,"0");
+    const hh = String(d.getUTCHours()).padStart(2,"0");
+    const mi = String(d.getUTCMinutes()).padStart(2,"0");
+    return `${mm}/${dd} ${hh}:${mi} UTC`;
+  }
+
+  function pct(x){ return (x*100).toFixed(1) + "%"; }
+
+  async function loadCompetitors(){
+    const days = document.getElementById("compDays").value;
+    const device = document.getElementById("compDevice").value;
+
+    const res = await fetch(`/api/research/${jobId}/competitors?days=${days}&device=${device}`);
+    const data = await res.json();
+
+    document.getElementById("compSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+    const tbody = document.getElementById("compTableBody");
+    tbody.innerHTML = "";
+
+    const diffs = data.diffs || {};
+    document.getElementById("diffBox").innerHTML = `
+      <div class="glass p-3">
+        <div class="small muted mb-1">Diffing</div>
+        <div><b>New today vs yesterday:</b> ${(diffs.new_today || []).slice(0,12).join(", ") || "<span class='muted'>none</span>"}</div>
+        <div class="mt-2"><b>Increased this week:</b> ${(diffs.increased_this_week || []).slice(0,8).map(x => `${x.advertiser} (+${x.delta})`).join(", ") || "<span class='muted'>none</span>"}</div>
+      </div>
+    `;
+
+    (data.competitors || []).forEach(c => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono">${c.advertiser}</td>
+        <td class="mono">${c.appearances}</td>
+        <td class="mono">${pct(c.top_ads_share)}</td>
+        <td class="mono">${pct(c.bottom_ads_share)}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-light" href="/research/${jobId}/competitor/${encodeURIComponent(c.advertiser)}?days=${days}&device=${device}">
+            Drilldown
+          </a>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadTrends(){
+    const kw = document.getElementById("trendKeywords").value;
+    const geo = document.getElementById("trendGeo").value;
+    const tf = document.getElementById("trendTime").value;
+
+    const res = await fetch(`/api/trends?keywords=${encodeURIComponent(kw)}&geo=${encodeURIComponent(geo)}&timeframe=${encodeURIComponent(tf)}`);
+    const data = await res.json();
+
+    document.getElementById("trendSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+    const err = document.getElementById("trendError");
+    err.textContent = "";
+    if (data.error){
+      err.textContent = data.error;
+      return;
+    }
+    const series = data.series || [];
+    if (!series.length){
+      err.textContent = "No trend data returned.";
+      return;
+    }
+
+    const labels = series[0].points.map(p => p.t.slice(0,10));
+    const datasets = series.map(s => ({
+      label: s.keyword,
+      data: s.points.map(p => p.v)
+    }));
+
+    const ctx = document.getElementById("trendChart");
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type:"line",
+      data:{labels, datasets},
+      options:{
+        plugins:{legend:{labels:{color:"#cbd5e1"}}},
+        scales:{x:{ticks:{color:"#cbd5e1"}}, y:{ticks:{color:"#cbd5e1"}}}
+      }
+    });
+  }
+</script>
+{% endblock %}

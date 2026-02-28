@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="glass p-4 mb-3">
+  <div class="d-flex justify-content-between flex-wrap gap-2">
+    <div>
+      <div class="h5 mb-0 mono">{{ advertiser }}</div>
+      <div class="muted small">{{ job.name }}</div>
+      <div class="muted small">
+        Window: <span class="mono">{{ days }}</span> days · Device: <span class="mono">{{ device }}</span>
+        · Page sync: <span class="mono" id="pageSync">—</span>
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-outline-light" href="{{ url_for('research', job_id=job.id) }}">Back</a>
+      <button class="btn btn-primary" onclick="loadAds()">Refresh ads</button>
+      <button class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#atcModal">Ads Transparency Center</button>
+    </div>
+  </div>
+
+  <hr class="border-light border-opacity-10">
+
+  <div class="d-flex flex-wrap gap-2">
+    <span class="chip">Appearances: <b class="mono">{{ total }}</b></span>
+    <span class="chip">Top-of-page share: <b class="mono">{{ (top_share*100)|round(1) }}%</b></span>
+    <span class="chip">Bottom share: <b class="mono">{{ (bottom_share*100)|round(1) }}%</b></span>
+    <span class="chip">Appeared today: <b class="mono">{{ dayweek.today }}</b></span>
+    <span class="chip">Appeared this week: <b class="mono">{{ dayweek.this_week }}</b></span>
+    <span class="chip">Spend scenario (NOT factual): <b class="mono">${{ monthly_spend }}</b>/month</span>
+  </div>
+
+  <div class="muted small mt-2">
+    Spend scenario uses CPC=<span class="mono">{{ spend_scenario.cpc_assumption }}</span>,
+    clicks/appearance=<span class="mono">{{ spend_scenario.clicks_per_appearance }}</span>.
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="glass p-4">
+      <div class="h6 mb-2">Time series</div>
+      <canvas id="tsChart" height="240"></canvas>
+
+      <hr class="border-light border-opacity-10">
+      <div class="h6 mb-2">Filters</div>
+
+      <div class="mb-2">
+        <label class="form-label muted">Offer tag</label>
+        <select class="form-select" id="offerTag">
+          <option value="">(any)</option>
+          {% for tag in offer_tags %}
+          <option value="{{ tag }}">{{ tag }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button class="btn btn-outline-light w-100" onclick="loadAds()">Apply</button>
+      <div class="muted small mt-2">Ads list sync: <span class="mono" id="adsSync">—</span></div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="glass p-4">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="h6 mb-0">Captured ads (click for details)</div>
+        <div class="muted small">up to 500</div>
+      </div>
+
+      <div class="table-responsive mt-3">
+        <table class="table table-dark table-hover align-middle">
+          <thead>
+            <tr>
+              <th>UTC</th><th>Device</th><th>Block</th><th>Message</th><th>Offers</th><th class="text-end"></th>
+            </tr>
+          </thead>
+          <tbody id="adsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Ad details modal -->
+<div class="modal fade" id="adModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Ad details</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="muted small mb-2">Details sync: <span class="mono" id="adDetailSync">—</span></div>
+        <div id="adDetails"></div>
+        <hr class="border-light border-opacity-10">
+        <button class="btn btn-primary" id="crawlBtn" onclick="crawlLanding()">Crawl landing page + PageSpeed</button>
+        <div class="muted small mt-2">Landing sync: <span class="mono" id="crawlSync">—</span></div>
+        <div id="crawlOut" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ATC modal -->
+<div class="modal fade" id="atcModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Google Ads Transparency Center (via SerpAPI)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="muted small mb-2">List sync: <span class="mono" id="atcSync">—</span> · Details sync: <span class="mono" id="atcDetailsSync">—</span></div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label muted">Advertiser query (domain/brand)</label>
+            <input class="form-control mono" id="atcAdvertiser" value="{{ advertiser }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label muted">Region</label>
+            <input class="form-control mono" id="atcRegion" value="US">
+          </div>
+          <div class="col-md-3 d-grid align-items-end">
+            <button class="btn btn-primary mt-4" onclick="loadATC()">Load creatives</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-dark table-hover align-middle">
+            <thead><tr><th>Creative</th><th class="text-end"></th></tr></thead>
+            <tbody id="atcBody"></tbody>
+          </table>
+        </div>
+
+        <div id="atcDetails" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const jobId = {{ job.id }};
+  const advertiser = "{{ advertiser|e }}";
+  const days = {{ days }};
+  const device = "{{ device }}";
+  let selectedAdId = null;
+
+  function fmtMM(iso){
+    const d = new Date(iso);
+    const mm = String(d.getUTCMonth()+1).padStart(2,"0");
+    const dd = String(d.getUTCDate()).padStart(2,"0");
+    const hh = String(d.getUTCHours()).padStart(2,"0");
+    const mi = String(d.getUTCMinutes()).padStart(2,"0");
+    return `${mm}/${dd} ${hh}:${mi} UTC`;
+  }
+
+  document.getElementById("pageSync").textContent = "{{ synced_at_utc }}" ? fmtMM("{{ synced_at_utc }}") : "—";
+
+  // time series chart
+  const points = {{ series.points | tojson }};
+  const labels = points.map(p => p.date);
+  const appearances = points.map(p => p.appearances);
+  const topLine = points.map(p => p.top);
+  const bottomLine = points.map(p => p.bottom);
+
+  new Chart(document.getElementById("tsChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Appearances", data: appearances },
+        { label: "Top Ads", data: topLine },
+        { label: "Bottom Ads", data: bottomLine }
+      ]
+    },
+    options: {
+      plugins: { legend: { labels: { color:"#cbd5e1" } } },
+      scales: { x: { ticks:{ color:"#cbd5e1" } }, y: { ticks:{ color:"#cbd5e1" } } }
+    }
+  });
+
+  function chips(list){
+    return (list || []).map(x => `<span class="chip mono">${x}</span>`).join(" ");
+  }
+
+  async function loadAds(){
+    const offer = document.getElementById("offerTag").value;
+    const res = await fetch(`/api/research/${jobId}/competitor/${encodeURIComponent(advertiser)}/ads?days=${days}&device=${device}&offer=${encodeURIComponent(offer)}`);
+    const data = await res.json();
+
+    document.getElementById("adsSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+    const body = document.getElementById("adsBody");
+    body.innerHTML = "";
+
+    (data.ads || []).forEach(a => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono muted">${a.created_at_utc.slice(0,19).replace("T"," ")}</td>
+        <td><span class="chip">${a.device}</span></td>
+        <td class="mono">${a.block || ""}</td>
+        <td>
+          <div><b>${a.headline || ""}</b></div>
+          <div class="muted small">${a.description || ""}</div>
+        </td>
+        <td>${chips(a.offers)}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-light" onclick='openAd(${JSON.stringify(a)})'>Open</button>
+        </td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  function openAd(a){
+    selectedAdId = a.ad_id;
+    document.getElementById("adDetailSync").textContent = fmtMM(new Date().toISOString());
+
+    const ext = a.extensions
+      ? `<pre class="mono small bg-black p-2 rounded">${JSON.stringify(a.extensions, null, 2)}</pre>`
+      : "<span class='muted'>none</span>";
+
+    document.getElementById("adDetails").innerHTML = `
+      <div class="mb-2"><b>Headline:</b> ${a.headline || ""}</div>
+      <div class="mb-2"><b>Description:</b> ${a.description || ""}</div>
+      <div class="mb-2">
+        <b>Device:</b> <span class="chip">${a.device}</span>
+        <b>Block:</b> <span class="chip mono">${a.block || ""}</span>
+        <b>Pos:</b> <span class="chip mono">${a.position ?? ""}</span>
+      </div>
+      <div class="mb-2"><b>Displayed:</b> <span class="mono muted">${a.displayed_link || ""}</span></div>
+      <div class="mb-2"><b>Destination:</b> ${a.destination_link ? `<a class="link-light" target="_blank" href="${a.destination_link}">${a.destination_link}</a>` : "<span class='muted'>none</span>"}</div>
+      <div class="mb-2"><b>Offers:</b> ${chips(a.offers)}</div>
+      <div class="mb-2"><b>Extensions / Sitelinks / Callouts:</b> ${ext}</div>
+    `;
+
+    document.getElementById("crawlOut").innerHTML = "";
+    document.getElementById("crawlSync").textContent = "—";
+    const modal = new bootstrap.Modal(document.getElementById("adModal"));
+    modal.show();
+  }
+
+  async function crawlLanding(){
+    if (!selectedAdId) return;
+    const btn = document.getElementById("crawlBtn");
+    btn.disabled = true;
+    btn.textContent = "Crawling...";
+    try{
+      const res = await fetch(`/api/ad/${selectedAdId}/crawl`, { method:"POST" });
+      const data = await res.json();
+
+      document.getElementById("crawlSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+      const h2s = JSON.parse(data.h2s_json || "[]");
+      const offers = JSON.parse(data.offers_json || "[]");
+
+      document.getElementById("crawlOut").innerHTML = `
+        <div class="glass p-3">
+          <div><b>Final URL:</b> ${data.final_url || ""}</div>
+          <div><b>Status:</b> <span class="mono">${data.http_status || ""}</span></div>
+          <div><b>Title:</b> ${data.title || ""}</div>
+          <div><b>H1:</b> ${data.h1 || ""}</div>
+          <div><b>H2s:</b> <span class="mono">${(h2s || []).join(" | ")}</span></div>
+
+          <div class="mt-2">
+            <span class="chip">Form: <b class="mono">${data.has_form ? "yes" : "no"}</b></span>
+            <span class="chip">Pricing: <b class="mono">${data.pricing_mentions ? "yes" : "no"}</b></span>
+            <span class="chip">Financing: <b class="mono">${data.financing_mentions ? "yes" : "no"}</b></span>
+          </div>
+
+          <div class="mt-2"><b>Offers (page text):</b> ${chips(offers)}</div>
+
+          <div class="mt-2">
+            <b>PageSpeed (mobile):</b>
+            <span class="chip">Perf: <b class="mono">${data.pagespeed_performance ?? "n/a"}</b></span>
+            <span class="chip">Acc: <b class="mono">${data.pagespeed_accessibility ?? "n/a"}</b></span>
+            <span class="chip">BP: <b class="mono">${data.pagespeed_best_practices ?? "n/a"}</b></span>
+            <span class="chip">SEO: <b class="mono">${data.pagespeed_seo ?? "n/a"}</b></span>
+          </div>
+
+          <div class="muted small mt-2">PageSpeed requires PAGESPEED_API_KEY env var.</div>
+        </div>
+      `;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Crawl landing page + PageSpeed";
+    }
+  }
+
+  async function loadATC(){
+    const adv = document.getElementById("atcAdvertiser").value;
+    const region = document.getElementById("atcRegion").value;
+
+    const res = await fetch(`/api/atc/list?advertiser=${encodeURIComponent(adv)}&region=${encodeURIComponent(region)}&page=1`);
+    const data = await res.json();
+
+    document.getElementById("atcSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+    const body = document.getElementById("atcBody");
+    body.innerHTML = "";
+
+    const creatives = data.creatives || [];
+    if (!creatives.length){
+      body.innerHTML = `<tr><td colspan="2" class="muted">No creatives found. Keys: ${(data.raw_keys||[]).join(", ")}</td></tr>`;
+      return;
+    }
+
+    creatives.slice(0, 60).forEach(c => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <div class="mono small">${(c.title || c.ad_id || "creative").slice(0, 160)}</div>
+          <div class="muted small">
+            <span class="chip">${c.format || "unknown"}</span>
+            ${c.first_seen ? `<span class="chip mono">first: ${c.first_seen}</span>` : ""}
+            ${c.last_seen ? `<span class="chip mono">last: ${c.last_seen}</span>` : ""}
+          </div>
+          ${c.preview_url ? `<div class="mt-1"><a class="link-light" target="_blank" href="${c.preview_url}">Preview</a></div>` : ""}
+          ${c.final_url ? `<div class="mt-1"><a class="link-light" target="_blank" href="${c.final_url}">Landing</a></div>` : ""}
+        </td>
+        <td class="text-end">
+          ${c.ad_id ? `<button class="btn btn-sm btn-outline-light" onclick="loadATCDetails('${c.ad_id}', '${region}')">Details</button>` : "<span class='muted'>no id</span>"}
+        </td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  async function loadATCDetails(adId, region){
+    const res = await fetch(`/api/atc/details?ad_id=${encodeURIComponent(adId)}&region=${encodeURIComponent(region)}`);
+    const data = await res.json();
+
+    document.getElementById("atcDetailsSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+
+    const n = data.normalized || {};
+    const headlines = (n.headlines || []).map(x => `<li class="mono">${x}</li>`).join("");
+    const descs = (n.descriptions || []).map(x => `<li class="mono">${x}</li>`).join("");
+    const callouts = (n.callouts || []).map(x => `<span class="chip mono">${x}</span>`).join(" ");
+    const sitelinks = (n.sitelinks || []).map(s => `<li class="mono">${s.text || ""}${s.url ? ` — <a class="link-light" target="_blank" href="${s.url}">${s.url}</a>` : ""}</li>`).join("");
+
+    document.getElementById("atcDetails").innerHTML = `
+      <div class="glass p-3">
+        <div class="h6 mb-2">ATC normalized details</div>
+        <div class="mb-2"><b>Format:</b> <span class="chip">${n.format || "unknown"}</span></div>
+
+        <div class="mb-2"><b>Headlines</b><ul>${headlines || "<span class='muted'>none</span>"}</ul></div>
+        <div class="mb-2"><b>Descriptions</b><ul>${descs || "<span class='muted'>none</span>"}</ul></div>
+
+        <div class="mb-2"><b>Callouts</b><div>${callouts || "<span class='muted'>none</span>"}</div></div>
+        <div class="mb-2"><b>Sitelinks</b><ul>${sitelinks || "<span class='muted'>none</span>"}</ul></div>
+
+        <details class="mt-2">
+          <summary class="muted">Raw JSON</summary>
+          <pre class="mono small bg-black p-2 rounded">${JSON.stringify(n.raw || {}, null, 2)}</pre>
+        </details>
+      </div>
+    `;
+  }
+
+  // initial load
+  loadAds();
+</script>
+{% endblock %}
