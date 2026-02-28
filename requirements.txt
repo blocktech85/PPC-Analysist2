@@ -1,0 +1,20 @@
+# Web Framework
+Flask==3.0.2
+Werkzeug==3.0.1
+
+# AI & LLM Integration
+google-generativeai==0.4.0
+openai==1.12.0
+aider-chat==0.86.2
+
+# API Clients & Data Handling
+requests==2.31.0
+python-dotenv==1.0.1
+pandas==2.2.0
+
+# Security & Search Tools
+serpapi==0.1.5
+ipstack==0.1.0
+
+# Performance & Environment
+gunicorn==21.2.0
