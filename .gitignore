@@ -5,3 +5,7 @@
 .aider.input.history
 .aider.tags.cache.v4/
 push_error.txt
+
+venv/
+.venv/
+
