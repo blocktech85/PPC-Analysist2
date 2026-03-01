@@ -1,4 +1,4 @@
-﻿.env
+.env
 .env.*
 *.env
 .aider.chat.history.md
@@ -9,3 +9,9 @@ push_error.txt
 venv/
 .venv/
 
+__pycache__/
+*.pyc
+*.pyo
+app.log
+ppc.db
+*.db

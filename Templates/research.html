@@ -4,14 +4,26 @@
 <div class="glass p-4 mb-3">
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
     <div>
+      <nav aria-label="breadcrumb" class="mb-1">
+        <ol class="breadcrumb breadcrumb-dark small mb-0">
+          <li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-light">Projects</a></li>
+          <li class="breadcrumb-item active" aria-current="page">{{ job.name }}</li>
+        </ol>
+      </nav>
       <div class="h5 mb-0">{{ job.name }}</div>
-      <div class="muted small">Job ID: <span class="mono">{{ job.id }}</span></div>
+      <div class="muted small">Project ID: <span class="mono">{{ job.id }}</span></div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a class="btn btn-outline-light" href="{{ url_for('export_job_csv', job_id=job.id) }}">Export CSV</a>
       <a class="btn btn-outline-light" href="{{ url_for('geo_page', job_id=job.id) }}">Geo heatmap</a>
+      <a class="btn btn-outline-light" href="{{ url_for('brand_monitor_page', job_id=job.id) }}">Brand monitor</a>
+      <a class="btn btn-outline-light" href="{{ url_for('auction_insights_page', job_id=job.id) }}">Auction insights</a>
+      <a class="btn btn-outline-light" href="{{ url_for('creative_alerts_page', job_id=job.id) }}">Creative alerts</a>
       <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#competitorsModal">Competitors view</button>
       <button class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#trendsModal">Google Trends</button>
+      <form method="post" action="{{ url_for('delete_job_route', job_id=job.id) }}" class="d-inline" onsubmit="return confirm('Delete this project and all its targets, ads, and data?');">
+        <button type="submit" class="btn btn-outline-danger">Delete project</button>
+      </form>
     </div>
   </div>
 </div>
@@ -59,34 +71,64 @@
         <table class="table table-dark table-hover align-middle">
           <thead>
             <tr>
-              <th>ID</th><th>Keyword</th><th>Location</th><th class="text-end">Actions</th>
+              <th>ID</th><th>Keyword</th><th>Location</th><th class="mono small">Last run</th><th>Budget track</th><th class="text-end">Actions</th>
             </tr>
           </thead>
           <tbody>
             {% for t in targets %}
-            <tr>
+            <tr data-target-id="{{ t.id }}">
               <td class="mono">{{ t.id }}</td>
               <td>{{ t.keyword }}</td>
               <td class="muted small">
                 <div>Input: <span class="mono">{{ t.location_input }}</span></div>
                 <div>SerpAPI: <span class="mono">{{ t.serp_location }}</span></div>
               </td>
+              <td class="mono small">{% if t.last_snapshot_utc %}{{ t.last_snapshot_utc[:19].replace('T',' ') }}{% else %}—{% endif %}</td>
+              <td>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input budget-toggle" type="checkbox" data-target-id="{{ t.id }}" {{ 'checked' if t.budget_tracking_enabled else '' }}>
+                  <label class="form-check-label muted small">On</label>
+                </div>
+              </td>
               <td class="text-end">
-                <form method="post" action="{{ url_for('run_target', target_id=t.id) }}" class="d-inline">
-                  <button class="btn btn-sm btn-primary">Run (desktop+mobile)</button>
+                <button type="button" class="btn btn-sm btn-outline-light presence-btn" data-target-id="{{ t.id }}" data-keyword="{{ t.keyword|e }}">Presence 24h</button>
+                <form method="post" action="{{ url_for('run_target', job_id=job.id, target_id=t.id) }}" class="d-inline run-target-form">
+                  <button type="submit" class="btn btn-sm btn-primary run-target-btn">Run (desktop+mobile)</button>
                 </form>
               </td>
             </tr>
             {% endfor %}
             {% if not targets %}
-            <tr><td colspan="4" class="muted">No targets yet.</td></tr>
+            <tr><td colspan="6" class="muted">No targets yet.</td></tr>
             {% endif %}
           </tbody>
         </table>
       </div>
 
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="button" class="btn btn-outline-light btn-sm" id="lpeBatchBtn">Run LPE batch (7 days)</button>
+      </div>
+
       <div class="muted small mt-2">
         Run snapshots daily/weekly for longitudinal competitor trends + diffing.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Presence 24h Modal -->
+<div class="modal fade" id="presenceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Presence last 24h — <span id="presenceTargetKeyword"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-end mb-2">
+          <button type="button" class="btn btn-sm btn-outline-light" id="presenceRefreshBtn">Refresh now</button>
+        </div>
+        <div id="presenceContent" class="small"></div>
       </div>
     </div>
   </div>
@@ -123,7 +165,7 @@
             </select>
           </div>
           <div class="col-md-6 d-grid align-items-end">
-            <button class="btn btn-primary mt-4" onclick="loadCompetitors()">Load competitors</button>
+            <button class="btn btn-primary mt-4" id="loadCompetitorsBtn" onclick="loadCompetitors()">Load competitors</button>
           </div>
         </div>
 
@@ -193,6 +235,7 @@
 {% block scripts %}
 <script>
   const jobId = {{ job.id }};
+  const competitorUrlBase = "{{ url_for('competitor_page', job_id=job.id, advertiser='') }}";
   let trendChart;
 
   function fmtMM(iso){
@@ -206,42 +249,72 @@
 
   function pct(x){ return (x*100).toFixed(1) + "%"; }
 
+  function esc(s){
+    if (s == null || s === undefined) return "";
+    const t = String(s);
+    return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function setLoading(btn, loading){
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading ? "Loading…" : (btn.dataset.originalText || "Load competitors");
+  }
+
+  document.getElementById("competitorsModal")?.addEventListener("show.bs.modal", function(){
+    if (!document.getElementById("compTableBody").innerHTML.trim()) loadCompetitors();
+  });
+  const loadCompetitorsBtn = document.getElementById("loadCompetitorsBtn");
+  if (loadCompetitorsBtn) loadCompetitorsBtn.dataset.originalText = loadCompetitorsBtn.textContent;
+
   async function loadCompetitors(){
+    const btn = document.getElementById("loadCompetitorsBtn");
+    setLoading(btn, true);
     const days = document.getElementById("compDays").value;
     const device = document.getElementById("compDevice").value;
 
-    const res = await fetch(`/api/research/${jobId}/competitors?days=${days}&device=${device}`);
-    const data = await res.json();
+    try {
+      const res = await fetch(`/api/research/${jobId}/competitors?days=${days}&device=${device}`);
+      const data = await res.json();
+      if (!res.ok) { document.getElementById("diffBox").innerHTML = "<p class='text-danger'>Failed to load.</p>"; return; }
 
-    document.getElementById("compSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
+      document.getElementById("compSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
 
-    const tbody = document.getElementById("compTableBody");
-    tbody.innerHTML = "";
+      const tbody = document.getElementById("compTableBody");
+      tbody.innerHTML = "";
 
-    const diffs = data.diffs || {};
-    document.getElementById("diffBox").innerHTML = `
-      <div class="glass p-3">
-        <div class="small muted mb-1">Diffing</div>
-        <div><b>New today vs yesterday:</b> ${(diffs.new_today || []).slice(0,12).join(", ") || "<span class='muted'>none</span>"}</div>
-        <div class="mt-2"><b>Increased this week:</b> ${(diffs.increased_this_week || []).slice(0,8).map(x => `${x.advertiser} (+${x.delta})`).join(", ") || "<span class='muted'>none</span>"}</div>
-      </div>
-    `;
-
-    (data.competitors || []).forEach(c => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="mono">${c.advertiser}</td>
-        <td class="mono">${c.appearances}</td>
-        <td class="mono">${pct(c.top_ads_share)}</td>
-        <td class="mono">${pct(c.bottom_ads_share)}</td>
-        <td class="text-end">
-          <a class="btn btn-sm btn-outline-light" href="/research/${jobId}/competitor/${encodeURIComponent(c.advertiser)}?days=${days}&device=${device}">
-            Drilldown
-          </a>
-        </td>
+      const diffs = data.diffs || {};
+      document.getElementById("diffBox").innerHTML = `
+        <div class="glass p-3">
+          <div class="small muted mb-1">Diffing</div>
+          <div><b>New today vs yesterday:</b> ${(diffs.new_today || []).slice(0,12).map(x => esc(x)).join(", ") || "<span class='muted'>none</span>"}</div>
+          <div class="mt-2"><b>Increased this week:</b> ${(diffs.increased_this_week || []).slice(0,8).map(x => esc(x.advertiser) + " (+" + x.delta + ")").join(", ") || "<span class='muted'>none</span>"}</div>
+        </div>
       `;
-      tbody.appendChild(tr);
-    });
+
+      (data.competitors || []).forEach(c => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="mono">${esc(c.advertiser)}</td>
+          <td class="mono">${esc(c.appearances)}</td>
+          <td class="mono">${pct(c.top_ads_share)}</td>
+          <td class="mono">${pct(c.bottom_ads_share)}</td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-light" href="${competitorUrlBase}${encodeURIComponent(c.advertiser)}?days=${days}&device=${device}">
+              Drilldown
+            </a>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      if (!(data.competitors || []).length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = "<td colspan='5' class='muted'>No advertisers yet. Run targets (desktop+mobile) for this project to capture ads, then click Load competitors again.</td>";
+        tbody.appendChild(tr);
+      }
+    } finally {
+      setLoading(btn, false);
+    }
   }
 
   async function loadTrends(){
@@ -255,14 +328,10 @@
     document.getElementById("trendSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
 
     const err = document.getElementById("trendError");
-    err.textContent = "";
-    if (data.error){
-      err.textContent = data.error;
-      return;
-    }
+    err.textContent = data.error || "";
     const series = data.series || [];
     if (!series.length){
-      err.textContent = "No trend data returned.";
+      if (!err.textContent) err.textContent = "No trend data returned.";
       return;
     }
 
@@ -283,5 +352,85 @@
       }
     });
   }
+
+  document.querySelectorAll(".budget-toggle").forEach(el => {
+    el.addEventListener("change", async function(){
+      const targetId = this.dataset.targetId;
+      const enabled = this.checked;
+      const btn = this;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/research/${jobId}/target/${targetId}/budget-tracking`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled })
+        });
+        const data = await res.json();
+        if (!data.ok) btn.checked = !enabled;
+      } catch (e) { btn.checked = !enabled; }
+      btn.disabled = false;
+    });
+  });
+
+  let presenceTargetId = null;
+  function renderPresenceList(list) {
+    const el = document.getElementById("presenceContent");
+    if (!list.length) el.innerHTML = "<span class='muted'>No presence data. Enable budget tracking and use “Refresh now” (or wait for scheduler runs).</span>";
+    else el.innerHTML = "<table class='table table-dark table-sm'><thead><tr><th>Advertiser</th><th>Hours present</th><th>First hour</th><th>Last hour</th></tr></thead><tbody>" +
+      list.map(p => `<tr><td class='mono'>${esc(p.advertiser)}</td><td>${esc(p.hours_present)}</td><td>${p.first_hour ?? "—"}</td><td>${p.last_hour ?? "—"}</td></tr>`).join("") + "</tbody></table>";
+  }
+  document.querySelectorAll(".presence-btn").forEach(btn => {
+    btn.addEventListener("click", async function(){
+      const targetId = this.dataset.targetId;
+      presenceTargetId = targetId;
+      const keyword = this.dataset.keyword || "";
+      document.getElementById("presenceTargetKeyword").textContent = keyword || "Target " + targetId;
+      document.getElementById("presenceContent").innerHTML = "<span class='muted'>Loading…</span>";
+      const modal = new bootstrap.Modal(document.getElementById("presenceModal"));
+      modal.show();
+      try {
+        const res = await fetch(`/api/research/${jobId}/target/${targetId}/presence`);
+        const data = await res.json();
+        renderPresenceList(data.presence || []);
+      } catch (e) {
+        document.getElementById("presenceContent").innerHTML = "<span class='text-danger'>Request failed.</span>";
+      }
+    });
+  });
+  document.getElementById("presenceRefreshBtn")?.addEventListener("click", async function(){
+    if (presenceTargetId == null) return;
+    const btn = this;
+    btn.disabled = true;
+    document.getElementById("presenceContent").innerHTML = "<span class='muted'>Refreshing…</span>";
+    try {
+      const res = await fetch(`/api/research/${jobId}/target/${presenceTargetId}/presence-refresh`, { method: "POST" });
+      const data = await res.json();
+      if (data.presence) renderPresenceList(data.presence);
+      else renderPresenceList([]);
+    } catch (e) {
+      document.getElementById("presenceContent").innerHTML = "<span class='text-danger'>Refresh failed.</span>";
+    }
+    btn.disabled = false;
+  });
+
+  document.querySelectorAll(".run-target-form").forEach(form => {
+    form.addEventListener("submit", function(){
+      const btn = form.querySelector(".run-target-btn");
+      if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+    });
+  });
+
+  document.getElementById("lpeBatchBtn")?.addEventListener("click", async function(){
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = "Running…";
+    try {
+      const res = await fetch(`/api/research/${jobId}/lpe-batch?days=7`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      alert("LPE batch: " + (data.urls_processed ?? 0) + " URL(s) processed.");
+    } catch (e) { alert("Request failed."); }
+    btn.disabled = false;
+    btn.textContent = "Run LPE batch (7 days)";
+  });
 </script>
 {% endblock %}

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="glass p-4 mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <nav aria-label="breadcrumb" class="mb-1"><ol class="breadcrumb breadcrumb-dark small mb-0"><li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-light">Projects</a></li><li class="breadcrumb-item"><a href="{{ url_for('research', job_id=job.id) }}" class="text-light">{{ job.name }}</a></li><li class="breadcrumb-item active" aria-current="page">Brand monitor</li></ol></nav>
+      <div class="h5 mb-0">Brand & Trademark Monitor</div>
+      <div class="muted small">{{ job.name }}</div>
+    </div>
+    <a class="btn btn-outline-light" href="{{ url_for('research', job_id=job.id) }}">Back to research</a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="glass p-4">
+      <div class="h6 mb-2">Brand assets (terms to monitor)</div>
+      <ul class="list-unstyled muted small">
+        {% for a in assets %}
+        <li><span class="mono">{{ a.term or a.regex_pattern }}</span> {% if not a.job_id %}(global){% endif %} {% if a.pattern_type == 'regex' %}(regex){% endif %}</li>
+        {% endfor %}
+        {% if not assets %}
+        <li>No brand terms configured. Add below or via API. Global terms (all projects) can be added via API only.</li>
+        {% endif %}
+      </ul>
+      <div class="muted small">Project-specific terms below. Global terms apply to all projects (add via API).</div>
+      <form method="post" action="{{ url_for('api_brand_assets', job_id=job.id) }}" class="mt-2">
+        <label class="form-label muted">Add term</label>
+        <input class="form-control" name="term" placeholder="YourBrand or trademark phrase">
+        <button class="btn btn-primary btn-sm mt-2">Add</button>
+      </form>
+      <form method="post" action="{{ url_for('api_scan_brand', job_id=job.id) }}" class="mt-3">
+        <button class="btn btn-outline-light">Scan ads for brand violations</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="glass p-4">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+        <div class="h6 mb-0">Trademark violations</div>
+        <div class="d-flex gap-1 align-items-center">
+          <span class="muted small">Status:</span>
+          <a class="btn btn-sm {{ 'btn-primary' if not status_filter else 'btn-outline-light' }}" href="{{ url_for('brand_monitor_page', job_id=job.id) }}">All</a>
+          <a class="btn btn-sm {{ 'btn-primary' if status_filter == 'new' else 'btn-outline-light' }}" href="{{ url_for('brand_monitor_page', job_id=job.id, status='new') }}">New</a>
+          <a class="btn btn-sm {{ 'btn-primary' if status_filter == 'reviewed' else 'btn-outline-light' }}" href="{{ url_for('brand_monitor_page', job_id=job.id, status='reviewed') }}">Reviewed</a>
+          <a class="btn btn-sm {{ 'btn-primary' if status_filter == 'dismissed' else 'btn-outline-light' }}" href="{{ url_for('brand_monitor_page', job_id=job.id, status='dismissed') }}">Dismissed</a>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle">
+          <thead>
+            <tr><th class="pe-2"><input type="checkbox" id="violationSelectAll" title="Select all"></th><th>Advertiser</th><th>Matched</th><th>Snippet</th><th>Date</th><th>Status</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            {% for v in violations %}
+            <tr data-vid="{{ v.id }}">
+              <td class="pe-2"><input type="checkbox" class="violation-cb" value="{{ v.id }}"></td>
+              <td class="mono">{{ v.advertiser }}</td>
+              <td class="mono">{{ v.matched_asset }}</td>
+              <td class="small text-truncate" style="max-width:200px" title="{{ v.matched_text_snippet }}">{{ v.matched_text_snippet }}</td>
+              <td class="mono small">{{ v.captured_at }}</td>
+              <td><span class="chip">{{ v.status }}</span></td>
+              <td>
+                {% if v.status == 'new' %}
+                <button type="button" class="btn btn-sm btn-outline-light violation-status" data-status="reviewed">Review</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary violation-status" data-status="dismissed">Dismiss</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not violations %}
+            <tr><td colspan="7" class="muted">No violations recorded. Run scan after adding brand terms.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="button" class="btn btn-outline-light btn-sm" id="complaintSelectedBtn" style="display:none">Generate complaint doc (selected)</button>
+        <form method="post" action="{{ url_for('api_complaint_doc', job_id=job.id) }}" target="_blank" class="d-inline" id="complaintFormAll">
+          <input type="hidden" name="violation_ids" id="complaintIdsAll" value="{{ violations|map(attribute='id')|join(',') }}">
+          {% if violations %}
+          <button type="submit" class="btn btn-outline-light btn-sm">Generate complaint doc (all)</button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const jobId = {{ job.id }};
+  const baseUrl = "{{ url_for('brand_monitor_page', job_id=job.id) }}";
+
+  document.getElementById("violationSelectAll")?.addEventListener("change", function(){
+    document.querySelectorAll(".violation-cb").forEach(cb => cb.checked = this.checked);
+    toggleSelectedBtn();
+  });
+  document.querySelectorAll(".violation-cb").forEach(cb => cb.addEventListener("change", toggleSelectedBtn));
+
+  function toggleSelectedBtn(){
+    const checked = document.querySelectorAll(".violation-cb:checked");
+    const btn = document.getElementById("complaintSelectedBtn");
+    if (btn) btn.style.display = checked.length ? "inline-block" : "none";
+  }
+
+  document.getElementById("complaintSelectedBtn")?.addEventListener("click", function(){
+    const ids = Array.from(document.querySelectorAll(".violation-cb:checked")).map(cb => cb.value).join(",");
+    if (!ids) return;
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "{{ url_for('api_complaint_doc', job_id=job.id) }}";
+    form.target = "_blank";
+    const inp = document.createElement("input");
+    inp.type = "hidden"; inp.name = "violation_ids"; inp.value = ids;
+    form.appendChild(inp);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  });
+
+  document.querySelectorAll(".violation-status").forEach(btn => {
+    btn.addEventListener("click", async function(){
+      const row = this.closest("tr");
+      const vid = row?.dataset?.vid;
+      const status = this.dataset?.status;
+      if (!vid || !status) return;
+      this.disabled = true;
+      try {
+        const res = await fetch(`/api/research/${jobId}/violations/${vid}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: status })
+        });
+        const data = await res.json();
+        if (data.ok) window.location.reload();
+        else alert(data.error || "Update failed");
+      } catch (e) { alert("Request failed"); }
+      this.disabled = false;
+    });
+  });
+})();
+</script>
+{% endblock %}

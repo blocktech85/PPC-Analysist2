@@ -24,6 +24,8 @@
       background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12);
       margin-right:.35rem; margin-bottom:.35rem; font-size:.8rem;
     }
+    .breadcrumb-dark .breadcrumb-item a { color: rgba(255,255,255,0.8); }
+    .breadcrumb-dark .breadcrumb-item.active { color: rgba(255,255,255,0.5); }
     a { text-decoration:none; }
   </style>
 </head>
@@ -33,14 +35,15 @@
       <div>
         <div class="h4 mb-0">PPC Competitor Research</div>
         <div class="muted small">SERP snapshots · share-of-voice proxies · ATC drilldowns · landing page intelligence</div>
+        {% block breadcrumbs %}{% endblock %}
       </div>
-      <a class="btn btn-outline-light btn-sm" href="{{ url_for('index') }}">Jobs</a>
+      <a class="btn btn-outline-light btn-sm" href="{{ url_for('index') }}">Projects</a>
     </div>
 
-    {% with messages = get_flashed_messages() %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        {% for m in messages %}
-          <div class="alert alert-info glass border-0 text-light">{{ m }}</div>
+        {% for cat, m in messages %}
+          <div class="alert alert-{{ cat or 'info' }} glass border-0 text-light">{{ m }}</div>
         {% endfor %}
       {% endif %}
     {% endwith %}

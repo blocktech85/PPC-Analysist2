@@ -4,6 +4,7 @@
 <div class="glass p-4 mb-3">
   <div class="d-flex justify-content-between flex-wrap gap-2">
     <div>
+      <nav aria-label="breadcrumb" class="mb-1"><ol class="breadcrumb breadcrumb-dark small mb-0"><li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-light">Projects</a></li><li class="breadcrumb-item"><a href="{{ url_for('research', job_id=job.id) }}" class="text-light">{{ job.name }}</a></li><li class="breadcrumb-item active" aria-current="page">{{ advertiser }}</li></ol></nav>
       <div class="h5 mb-0 mono">{{ advertiser }}</div>
       <div class="muted small">{{ job.name }}</div>
       <div class="muted small">
@@ -143,6 +144,7 @@
 {% block scripts %}
 <script>
   const jobId = {{ job.id }};
+  const syncedAtUtc = {{ synced_at_utc|tojson if synced_at_utc is not none else 'null' }};
   const advertiser = "{{ advertiser|e }}";
   const days = {{ days }};
   const device = "{{ device }}";
@@ -157,7 +159,13 @@
     return `${mm}/${dd} ${hh}:${mi} UTC`;
   }
 
-  document.getElementById("pageSync").textContent = "{{ synced_at_utc }}" ? fmtMM("{{ synced_at_utc }}") : "—";
+  function esc(s){
+    if (s == null || s === undefined) return "";
+    const t = String(s);
+    return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  document.getElementById("pageSync").textContent = (typeof syncedAtUtc !== "undefined" && syncedAtUtc && syncedAtUtc !== "None") ? fmtMM(syncedAtUtc) : "—";
 
   // time series chart
   const points = {{ series.points | tojson }};
@@ -187,6 +195,11 @@
   }
 
   async function loadAds(){
+    if (!advertiser || !String(advertiser).trim()) {
+      const body = document.getElementById("adsBody");
+      if (body) body.innerHTML = "<tr><td colspan='5' class='muted'>Advertiser is required.</td></tr>";
+      return;
+    }
     const offer = document.getElementById("offerTag").value;
     const res = await fetch(`/api/research/${jobId}/competitor/${encodeURIComponent(advertiser)}/ads?days=${days}&device=${device}&offer=${encodeURIComponent(offer)}`);
     const data = await res.json();
@@ -199,7 +212,7 @@
     (data.ads || []).forEach(a => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td class="mono muted">${a.created_at_utc.slice(0,19).replace("T"," ")}</td>
+        <td class="mono muted">${(a.created_at_utc || '').slice(0,19).replace("T"," ")}</td>
         <td><span class="chip">${a.device}</span></td>
         <td class="mono">${a.block || ""}</td>
         <td>
@@ -216,7 +229,7 @@
   }
 
   function openAd(a){
-    selectedAdId = a.ad_id;
+    selectedAdId = a.id != null ? a.id : a.ad_id;
     document.getElementById("adDetailSync").textContent = fmtMM(new Date().toISOString());
 
     const ext = a.extensions
@@ -252,6 +265,11 @@
       const res = await fetch(`/api/ad/${selectedAdId}/crawl`, { method:"POST" });
       const data = await res.json();
 
+      if (!res.ok) {
+        document.getElementById("crawlSync").textContent = "—";
+        document.getElementById("crawlOut").innerHTML = "<div class='text-danger'>" + esc(data.error || "Crawl failed") + (data.http_status ? " (HTTP " + esc(data.http_status) + ")" : "") + "</div>";
+        return;
+      }
       document.getElementById("crawlSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
 
       const h2s = JSON.parse(data.h2s_json || "[]");
@@ -298,13 +316,18 @@
     const data = await res.json();
 
     document.getElementById("atcSync").textContent = data.synced_at_utc ? fmtMM(data.synced_at_utc) : "—";
-
     const body = document.getElementById("atcBody");
     body.innerHTML = "";
-
+    if (!res.ok) {
+      body.innerHTML = "<tr><td colspan='2' class='text-danger'>" + esc(data.error || "Request failed") + "</td></tr>";
+      return;
+    }
     const creatives = data.creatives || [];
     if (!creatives.length){
-      body.innerHTML = `<tr><td colspan="2" class="muted">No creatives found. Keys: ${(data.raw_keys||[]).join(", ")}</td></tr>`;
+      const msg = data.error ? "Error: " + esc(data.error) + ". " : "";
+      const keys = !data.error && (data.raw_keys || []).length ? " Keys: " + (data.raw_keys || []).join(", ") : "";
+      const structure = !data.error && data.response_structure ? " Structure: " + data.response_structure : "";
+      body.innerHTML = `<tr><td colspan="2" class="muted small">${msg}${data.error ? "" : "No creatives found."}${keys}${structure}</td></tr>`;
       return;
     }
 

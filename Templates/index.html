@@ -4,14 +4,14 @@
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="glass p-4">
-      <div class="h5 mb-3">Create research job</div>
+      <div class="h5 mb-3">Create research project</div>
       <form method="post" action="{{ url_for('create_job_route') }}">
-        <label class="form-label muted">Job name</label>
+        <label class="form-label muted">Project name</label>
         <input class="form-control form-control-lg" name="name" placeholder="e.g. Solar Installers - Phoenix" required>
         <button class="btn btn-primary w-100 mt-3">Create</button>
       </form>
       <div class="muted small mt-2">
-        A job holds many keyword+location targets and competitor analysis views.
+        A project holds many keyword+location targets and competitor analysis views.
       </div>
     </div>
   </div>
@@ -19,14 +19,14 @@
   <div class="col-lg-7">
     <div class="glass p-4">
       <div class="d-flex align-items-center justify-content-between mb-2">
-        <div class="h5 mb-0">Recent jobs</div>
+        <div class="h5 mb-0">Recent projects</div>
         <div class="muted small">{{ jobs|length }} total</div>
       </div>
 
       <div class="table-responsive">
         <table class="table table-dark table-hover align-middle">
           <thead>
-            <tr><th>ID</th><th>Name</th><th class="text-end"></th></tr>
+            <tr><th>ID</th><th>Name</th><th class="text-end">Actions</th></tr>
           </thead>
           <tbody>
             {% for j in jobs %}
@@ -35,11 +35,14 @@
               <td>{{ j.name }}</td>
               <td class="text-end">
                 <a class="btn btn-outline-light btn-sm" href="{{ url_for('research', job_id=j.id) }}">Open</a>
+                <form method="post" action="{{ url_for('delete_job_route', job_id=j.id) }}" class="d-inline ms-1" onsubmit="return confirm('Delete this project and all its targets, ads, and data?');">
+                  <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
+                </form>
               </td>
             </tr>
             {% endfor %}
             {% if not jobs %}
-            <tr><td colspan="3" class="muted">No jobs yet.</td></tr>
+            <tr><td colspan="3" class="muted">No projects yet.</td></tr>
             {% endif %}
           </tbody>
         </table>

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="glass p-4 mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <nav aria-label="breadcrumb" class="mb-1"><ol class="breadcrumb breadcrumb-dark small mb-0"><li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-light">Projects</a></li><li class="breadcrumb-item"><a href="{{ url_for('research', job_id=job.id) }}" class="text-light">{{ job.name }}</a></li><li class="breadcrumb-item active" aria-current="page">Creative alerts</li></ol></nav>
+      <div class="h5 mb-0">Creative alerts</div>
+      <div class="muted small">{{ job.name }} — Watchlist change detection</div>
+    </div>
+    <a class="btn btn-outline-light" href="{{ url_for('research', job_id=job.id) }}">Back to research</a>
+  </div>
+</div>
+
+<div class="glass p-4 mb-3">
+  <div class="h6 mb-2">Watchlist</div>
+  <p class="muted small">Add domains to watch via API: POST /api/research/{{ job.id }}/watchlist with advertiser_domain and region. Scheduler polls daily and records creative changes here.</p>
+  <div id="watchlistList" class="small"></div>
+</div>
+
+<div class="glass p-4">
+  <div class="h6 mb-2">Recent alerts</div>
+  <div id="alertsList"><span class="muted">Loading…</span></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const jobId = {{ job.id }};
+  (async function(){
+    const [watchRes, alertsRes] = await Promise.all([
+      fetch(`/api/research/${jobId}/watchlist`),
+      fetch(`/api/research/${jobId}/creative-alerts`)
+    ]);
+    const watchData = await watchRes.json().catch(() => ({}));
+    const alertsData = await alertsRes.json().catch(() => ({}));
+    const watchlist = watchData.watchlist || [];
+    const alerts = alertsData.alerts || [];
+
+    document.getElementById("watchlistList").innerHTML = watchlist.length
+      ? "<ul class='list-unstyled'><li class='mono'>" + watchlist.map(w => w.advertiser_domain + " (" + (w.region || "US") + ")").join("</li><li class='mono'>") + "</li></ul>"
+      : "<span class='muted'>None. Add via API.</span>";
+
+    if (!alerts.length) document.getElementById("alertsList").innerHTML = "<span class='muted'>No alerts yet.</span>";
+    else {
+      let html = "<table class='table table-dark table-hover table-sm'><thead><tr><th>When</th><th>Domain</th><th>Type</th><th>Summary</th></tr></thead><tbody>";
+      alerts.forEach(a => {
+        const diff = a.diff_summary_json ? (typeof a.diff_summary_json === "string" ? a.diff_summary_json : JSON.stringify(a.diff_summary_json)).slice(0, 120) : "";
+        html += "<tr><td class='mono small'>" + (a.created_at || "") + "</td><td class='mono'>" + (a.advertiser_domain || "") + "</td><td>" + (a.type || "") + "</td><td class='small text-truncate' style='max-width:200px'>" + diff + "</td></tr>";
+      });
+      html += "</tbody></table>";
+      document.getElementById("alertsList").innerHTML = html;
+    }
+  })();
+</script>
+{% endblock %}

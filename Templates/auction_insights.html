@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="glass p-4 mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <nav aria-label="breadcrumb" class="mb-1"><ol class="breadcrumb breadcrumb-dark small mb-0"><li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-light">Projects</a></li><li class="breadcrumb-item"><a href="{{ url_for('research', job_id=job.id) }}" class="text-light">{{ job.name }}</a></li><li class="breadcrumb-item active" aria-current="page">Auction insights</li></ol></nav>
+      <div class="h5 mb-0">Proxy Auction Insights</div>
+      <div class="muted small">{{ job.name }} – Overlap rate & outranking share from SERP data</div>
+    </div>
+    <a class="btn btn-outline-light" href="{{ url_for('research', job_id=job.id) }}">Back to research</a>
+  </div>
+</div>
+
+<div class="glass p-4 mb-3">
+  <div class="row g-2">
+    <div class="col-md-2">
+      <label class="form-label muted">Window (days)</label>
+      <select class="form-select" id="insightsDays">
+        <option value="7">7</option>
+        <option value="30" selected>30</option>
+        <option value="60">60</option>
+        <option value="90">90</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label muted">Device</label>
+      <select class="form-select" id="insightsDevice">
+        <option value="all">All</option>
+        <option value="desktop">Desktop</option>
+        <option value="mobile">Mobile</option>
+      </select>
+    </div>
+    <div class="col-md-2 d-grid align-items-end">
+      <button class="btn btn-primary" onclick="loadInsights()">Load matrix</button>
+    </div>
+    <div class="col-md-2" id="filterCol" style="display:none">
+      <label class="form-label muted">Filter by advertiser</label>
+      <select class="form-select" id="insightsFilter">
+        <option value="">All pairs</option>
+      </select>
+    </div>
+    <div class="col-md-2" id="sortCol" style="display:none">
+      <label class="form-label muted">Sort by</label>
+      <select class="form-select" id="insightsSort">
+        <option value="overlap">Overlap rate</option>
+        <option value="out_ab">Outranking A→B</option>
+        <option value="out_ba">Outranking B→A</option>
+      </select>
+    </div>
+    <div class="col-md-2 d-grid align-items-end" id="exportCol" style="display:none">
+      <button class="btn btn-outline-light btn-sm" id="insightsExportBtn">Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<div class="glass p-4">
+  <div id="insightsMatrix" class="table-responsive">
+    <p class="muted">Select window and device, then click Load matrix.</p>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const jobId = {{ job.id }};
+  let currentMatrix = [];
+  function esc(s){
+    if (s == null || s === undefined) return "";
+    const t = String(s);
+    return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function renderMatrix(matrix){
+    const sortBy = document.getElementById("insightsSort")?.value || "overlap";
+    let sorted = matrix.slice();
+    if (sortBy === "overlap") sorted.sort((a,b) => (b.overlap_rate || 0) - (a.overlap_rate || 0));
+    else if (sortBy === "out_ab") sorted.sort((a,b) => (b.outranking_share_ab || 0) - (a.outranking_share_ab || 0));
+    else if (sortBy === "out_ba") sorted.sort((a,b) => (b.outranking_share_ba || 0) - (a.outranking_share_ba || 0));
+    const filterAdv = document.getElementById("insightsFilter")?.value || "";
+    if (filterAdv) sorted = sorted.filter(m => m.advertiser_a === filterAdv || m.advertiser_b === filterAdv);
+    const el = document.getElementById("insightsMatrix");
+    let html = "<table class='table table-dark table-hover'><thead><tr><th>Advertiser A</th><th>Advertiser B</th><th>Overlap rate</th><th>Outranking A→B</th><th>Outranking B→A</th><th>Snapshots</th></tr></thead><tbody>";
+    sorted.forEach(m => {
+      html += "<tr><td class=\"mono\">" + esc(m.advertiser_a) + "</td><td class=\"mono\">" + esc(m.advertiser_b) + "</td><td class=\"mono\">" + (m.overlap_rate*100).toFixed(1) + "%</td><td class=\"mono\">" + (m.outranking_share_ab*100).toFixed(1) + "%</td><td class=\"mono\">" + (m.outranking_share_ba*100).toFixed(1) + "%</td><td class=\"mono\">" + esc(m.snapshot_count) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    el.innerHTML = html;
+  }
+  async function loadInsights(){
+    const days = document.getElementById("insightsDays").value;
+    const device = document.getElementById("insightsDevice").value;
+    const res = await fetch(`/api/research/${jobId}/auction-insights?days=${days}&device=${device}`);
+    const data = await res.json();
+    currentMatrix = data.matrix || [];
+    const el = document.getElementById("insightsMatrix");
+    document.getElementById("filterCol").style.display = document.getElementById("sortCol").style.display = document.getElementById("exportCol").style.display = currentMatrix.length ? "block" : "none";
+    if (!currentMatrix.length){
+      el.innerHTML = "<p class='muted'>No snapshot data for the last " + days + " days. <a href=\"" + "{{ url_for('research', job_id=job.id) }}" + "\">Run targets</a> on this project first, or try a longer window.</p>";
+      return;
+    }
+    const advertisers = [...new Set(currentMatrix.flatMap(m => [m.advertiser_a, m.advertiser_b]))].sort();
+    const filterSel = document.getElementById("insightsFilter");
+    filterSel.innerHTML = "<option value=''>All pairs</option>" + advertisers.map(a => "<option value='" + esc(a) + "'>" + esc(a) + "</option>").join("");
+    filterSel.onchange = () => renderMatrix(currentMatrix);
+    document.getElementById("insightsSort").onchange = () => renderMatrix(currentMatrix);
+    document.getElementById("insightsExportBtn").onclick = function(){
+      const sortBy = document.getElementById("insightsSort").value;
+      let sorted = currentMatrix.slice();
+      if (sortBy === "overlap") sorted.sort((a,b) => (b.overlap_rate || 0) - (a.overlap_rate || 0));
+      else if (sortBy === "out_ab") sorted.sort((a,b) => (b.outranking_share_ab || 0) - (a.outranking_share_ab || 0));
+      else if (sortBy === "out_ba") sorted.sort((a,b) => (b.outranking_share_ba || 0) - (a.outranking_share_ba || 0));
+      const filterAdv = document.getElementById("insightsFilter").value;
+      if (filterAdv) sorted = sorted.filter(m => m.advertiser_a === filterAdv || m.advertiser_b === filterAdv);
+      const csv = "Advertiser A,Advertiser B,Overlap rate,Outranking A to B,Outranking B to A,Snapshots\n" + sorted.map(m => [m.advertiser_a, m.advertiser_b, (m.overlap_rate*100).toFixed(1)+"%", (m.outranking_share_ab*100).toFixed(1)+"%", (m.outranking_share_ba*100).toFixed(1)+"%", m.snapshot_count].map(c => "\"" + String(c).replace(/"/g, "\"\"") + "\"").join(",")).join("\n");
+      const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "auction_insights_" + jobId + ".csv"; a.click();
+    };
+    renderMatrix(currentMatrix);
+  }
+</script>
+{% endblock %}

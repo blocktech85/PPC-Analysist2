@@ -1,4 +1,4 @@
-﻿# Web Framework
+# Web Framework
 Flask>=3.0
 Werkzeug>=3.0
 
@@ -10,7 +10,14 @@ openai>=1.12
 requests>=2.31
 python-dotenv>=1.0
 pandas>=2.2
+beautifulsoup4>=4.12
+
+# Scheduling
+APScheduler>=3.10
 
 # Security & Search Tools
 serpapi>=0.1.5
 ipstack>=0.1.0
+
+# Production (optional): use for production deploy instead of python app.py
+# gunicorn>=23.0
